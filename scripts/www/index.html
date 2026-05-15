@@ -1,0 +1,247 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>舒络唐计时器</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: sans-serif;
+        }
+        body {
+            max-width: 500px;
+            margin: 3rem auto;
+            padding: 0 1rem;
+        }
+        .setting-group {
+            margin: 1rem 0;
+        }
+        label {
+            display: block;
+            margin-bottom: 0.3rem;
+            font-weight: 600;
+        }
+        input {
+            width: 100%;
+            padding: 0.5rem;
+            font-size: 1rem;
+        }
+        .display {
+            text-align: center;
+            margin: 2rem 0;
+            color: #222;
+        }
+        #currentRound {
+            font-size: 1.5rem;
+            color: #666;
+            margin-bottom: 0.5rem;
+        }
+        #currentStatus {
+            font-size: 1.2rem;
+            color: #165DFF;
+            margin-bottom: 1rem;
+        }
+        #timeNum {
+            font-size: 5rem;
+            font-weight: bold;
+        }
+        #controlBtn {
+            width: 100%;
+            padding: 1rem;
+            font-size: 1.2rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            background: #165DFF;
+            color: white;
+            transition: 0.2s;
+        }
+        #controlBtn.running {
+            background: #F53F3F;
+        }
+        .volume-setting {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <h1 style="text-align:center;"> 循序渐进   活力重现</h1>
+
+    <div class="setting-group">
+        <label for="endNum">计数上限（默认10）</label>
+        <input type="number" id="endNum" value="10" min="1">
+    </div>
+
+    <div class="setting-group">
+        <label for="interval">间歇秒数（默认3秒）</label>
+        <input type="number" id="interval" value="3" min="1">
+    </div>
+
+    <div class="setting-group">
+        <label for="loopCount">总循环次数</label>
+        <input type="number" id="loopCount" value="1" min="1">
+    </div>
+
+    <div class="setting-group">
+        <label for="volume">提示音音量（0-100）</label>
+        <div class="volume-setting">
+            <input type="range" id="volume" min="0" max="100" value="70">
+            <span id="volumeValue">70</span>
+        </div>
+    </div>
+
+    <div class="display">
+        <div id="currentRound">第1轮</div>
+        <div id="currentStatus">计数中</div>
+        <div id="timeNum">1</div>
+    </div>
+    <button id="controlBtn">开始计时</button>
+
+    <script>
+        // 元素获取
+        const endNumInput = document.getElementById('endNum');
+        const intervalInput = document.getElementById('interval');
+        const loopCountInput = document.getElementById('loopCount');
+        const volumeInput = document.getElementById('volume');
+        const volumeValue = document.getElementById('volumeValue');
+        const currentRoundEl = document.getElementById('currentRound');
+        const currentStatusEl = document.getElementById('currentStatus');
+        const timeNumEl = document.getElementById('timeNum');
+        const controlBtn = document.getElementById('controlBtn');
+
+        // 状态变量
+        let isRunning = false;
+        let timer = null;
+        let currentCount = 1;
+        let currentLoop = 1;
+        let isInterval = false;
+
+        // 音量同步
+        volumeInput.addEventListener('input', () => {
+            volumeValue.textContent = volumeInput.value;
+        });
+
+        // 播放清脆循环提示音
+        function playBeep() {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const gainNode = audioCtx.createGain();
+            const oscillator = audioCtx.createOscillator();
+            
+            oscillator.type = 'sine'; // 清脆正弦波
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            oscillator.frequency.value = 880; // 更高频率更清脆
+            gainNode.gain.value = volumeInput.value / 100 * 0.6;
+            
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.9);
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.9);
+        }
+
+        // 播放结束三节音效
+        function playEndBeep() {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const gainNode = audioCtx.createGain();
+            const oscillator = audioCtx.createOscillator();
+            
+            oscillator.type = 'sine';
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            gainNode.gain.value = volumeInput.value / 100 * 0.25;
+
+                            // 三节不同音调
+            const notes = [660, 880, 1320];
+            notes.forEach((freq, i) => {
+                setTimeout(() => {
+                    oscillator.frequency.setValueAtTime(freq, audioCtx.currentTime + i*0.25);
+                }, i * 200);
+            });
+
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.9);
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 1);
+        }
+
+        // 更新界面显示
+        function updateDisplay() {
+            currentRoundEl.textContent = `第${currentLoop}轮`;
+            currentStatusEl.textContent = isInterval ? "间歇中" : "计数中";
+            timeNumEl.textContent = currentCount;
+        }
+
+        // 计时逻辑
+        function tick() {
+            if (!isRunning) return;
+
+            if (isInterval) {
+                // 间歇阶段倒计时
+                currentCount--;
+                updateDisplay();
+                if (currentCount <= 0) {
+                    isInterval = false;
+                    currentLoop++;
+                    currentCount = 1;
+                    updateDisplay();
+                }
+            } else {
+                // 计数阶段
+                currentCount++;
+                updateDisplay();
+                if (currentCount > parseInt(endNumInput.value || 10)) {
+                    // 本轮计数结束，判断是否是全部结束
+                    const isFinalLoop = currentLoop >= parseInt(loopCountInput.value || 1);
+                    playBeep();
+                    
+                    if (isFinalLoop) {
+                        setTimeout(() => {
+                            playEndBeep();
+                            setTimeout(() => {
+                                stopTimer();
+                                currentStatusEl.textContent = "全部完成";
+                            }, 1100);
+                        }, 500);
+                        return;
+                    }
+                    // 进入间歇
+                    isInterval = true;
+                    currentCount = parseInt(intervalInput.value || 3);
+                    updateDisplay();
+                }
+            }
+        }
+
+        // 开始计时
+        function startTimer() {
+            if (isRunning) return;
+            isRunning = true;
+            currentCount = 1;
+            currentLoop = 1;
+            isInterval = false;
+            updateDisplay();
+            controlBtn.textContent = "停止计时";
+            controlBtn.classList.add('running');
+            timer = setInterval(tick, 1000);
+        }
+        // 停止计时
+        function stopTimer() {
+            isRunning = false;
+            clearInterval(timer);
+            controlBtn.textContent = "开始计时";
+            controlBtn.classList.remove('running');
+        }
+
+        // 按钮点击切换
+        controlBtn.addEventListener('click', () => {
+            isRunning ? stopTimer() : startTimer();
+        });
+    </script>
+</body>
+</html>
+ 
